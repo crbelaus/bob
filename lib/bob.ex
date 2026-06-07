@@ -7,18 +7,9 @@ defmodule Bob do
     Sentry.capture_exception(exception, stacktrace: stacktrace)
   end
 
-  def build_elixir(ref_name) do
-    ref = Bob.GitHub.fetch_repo_refs("elixir-lang/elixir") |> Map.new() |> Map.fetch!(ref_name)
-    Bob.Queue.add(Bob.Job.BuildElixir, [ref_name, ref])
-  end
-
   def build_otp(ref_name, linux) do
     ref = Bob.GitHub.fetch_repo_refs("erlang/otp") |> Map.new() |> Map.fetch!(ref_name)
     Bob.Queue.add(Bob.Job.BuildOTP, [ref_name, ref, linux])
-  end
-
-  def build_hex_docs(ref_name) do
-    Bob.Queue.add(Bob.Job.BuildHexDocs, [ref_name])
   end
 
   def build_docker_erlang(erlang, os, os_version, arch) do

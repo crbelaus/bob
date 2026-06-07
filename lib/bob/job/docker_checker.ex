@@ -35,28 +35,18 @@ defmodule Bob.Job.DockerChecker do
          ~r/^bullseye-\d{8}-slim$/
        ]}
     ]
-    |> Task.async_stream(
-      fn {repo, regexes} ->
-        {repo, tags(repo, regexes)}
-      end,
-      ordered: false,
-      timeout: 300_000
-    )
-    |> Enum.map(fn {:ok, repo_and_tags} -> repo_and_tags end)
-    |> Map.new()
+    |> Map.new(fn {repo, regexes} -> {repo, tags(repo, regexes)} end)
   end
 
   defp tags(repo, regexes) do
     tags =
       ("library/" <> repo)
-      |> Bob.DockerHub.fetch_repo_tags()
-      |> Enum.filter(fn {_tag, archs} -> Enum.all?(@archs, &(&1 in archs)) end)
-      |> Enum.map(fn {tag, _archs} -> tag end)
+      |> Bob.Artifacts.base_image_tags()
       |> Enum.sort(&(&1 >= &2))
 
-    Enum.map(regexes, fn regex ->
-      Enum.find(tags, &(&1 =~ regex))
-    end)
+    regexes
+    |> Enum.map(fn regex -> Enum.find(tags, &(&1 =~ regex)) end)
+    |> Enum.reject(&is_nil/1)
   end
 
   def run() do
@@ -74,12 +64,11 @@ defmodule Bob.Job.DockerChecker do
   def concurrency(), do: :shared
 
   def erlang() do
-    tags = erlang_tags()
-    expected_tags = expected_erlang_tags()
-
-    Enum.each(diff(expected_tags, tags), fn {erlang, os, os_version, arch} ->
-      Bob.Queue.add({Bob.Job.BuildDockerErlang, arch}, [erlang, os, os_version])
+    diff(expected_erlang_tags(), erlang_tags())
+    |> Enum.map(fn {erlang, os, os_version, arch} ->
+      {{Bob.Job.BuildDockerErlang, arch}, [erlang, os, os_version]}
     end)
+    |> Bob.Queue.add_many()
   end
 
   def expected_erlang_tags() do
@@ -271,20 +260,19 @@ defmodule Bob.Job.DockerChecker do
 
   def erlang_tags(arch) do
     "hexpm/erlang-#{arch}"
-    |> Bob.DockerHub.fetch_repo_tags_from_cache()
-    |> Stream.map(fn {tag, [^arch]} ->
+    |> Bob.Artifacts.docker_tags()
+    |> Enum.map(fn {tag, [^arch]} ->
       [erlang, os, os_version] = Regex.run(@erlang_tag_regex, tag, capture: :all_but_first)
       {erlang, os, os_version, arch}
     end)
   end
 
   def elixir() do
-    tags = elixir_tags()
-    expected_tags = expected_elixir_tags()
-
-    Enum.each(diff(expected_tags, tags), fn {elixir, erlang, os, os_version, arch} ->
-      Bob.Queue.add({Bob.Job.BuildDockerElixir, arch}, [elixir, erlang, os, os_version])
+    diff(expected_elixir_tags(), elixir_tags())
+    |> Enum.map(fn {elixir, erlang, os, os_version, arch} ->
+      {{Bob.Job.BuildDockerElixir, arch}, [elixir, erlang, os, os_version]}
     end)
+    |> Bob.Queue.add_many()
   end
 
   def expected_elixir_tags() do
@@ -308,7 +296,7 @@ defmodule Bob.Job.DockerChecker do
 
   def elixir_builds() do
     "builds/elixir"
-    |> Bob.Repo.fetch_built_refs()
+    |> Bob.Store.fetch_built_refs()
     |> Stream.map(fn {build_name, _ref} -> build_name end)
     |> Stream.map(&split_elixir_build/1)
     |> Stream.filter(&build_elixir_ref?/1)
@@ -323,8 +311,8 @@ defmodule Bob.Job.DockerChecker do
 
   def elixir_tags(arch) do
     "hexpm/elixir-#{arch}"
-    |> Bob.DockerHub.fetch_repo_tags_from_cache()
-    |> Stream.map(fn {tag, [^arch]} ->
+    |> Bob.Artifacts.docker_tags()
+    |> Enum.map(fn {tag, [^arch]} ->
       [elixir, erlang, os, os_version] =
         Regex.run(@elixir_tag_regex, tag, capture: :all_but_first)
 
@@ -409,7 +397,7 @@ defmodule Bob.Job.DockerChecker do
 
   def erlang_manifest_tags() do
     "hexpm/erlang"
-    |> Bob.DockerHub.fetch_repo_tags_from_cache()
+    |> Bob.Artifacts.docker_tags()
     |> Map.new(fn {tag, archs} ->
       [erlang, os, os_version] = Regex.run(@erlang_tag_regex, tag, capture: :all_but_first)
       {{erlang, os, os_version}, archs}
@@ -418,7 +406,7 @@ defmodule Bob.Job.DockerChecker do
 
   def elixir_manifest_tags() do
     "hexpm/elixir"
-    |> Bob.DockerHub.fetch_repo_tags_from_cache()
+    |> Bob.Artifacts.docker_tags()
     |> Map.new(fn {tag, archs} ->
       [elixir, erlang, os, os_version] =
         Regex.run(@elixir_tag_regex, tag, capture: :all_but_first)
@@ -436,10 +424,15 @@ defmodule Bob.Job.DockerChecker do
   end
 
   def diff_manifests(kind, expected, current) do
-    Enum.each(Enum.sort(expected), fn {key, expected_archs} ->
+    expected
+    |> Enum.sort()
+    |> Enum.flat_map(fn {key, expected_archs} ->
       if expected_archs -- Map.get(current, key, []) != [] do
-        Bob.Queue.add(Bob.Job.DockerManifest, [kind, key])
+        [{Bob.Job.DockerManifest, [kind, key]}]
+      else
+        []
       end
     end)
+    |> Bob.Queue.add_many()
   end
 end

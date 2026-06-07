@@ -1,46 +1,29 @@
 defmodule Bob.RepoTest do
-  use ExUnit.Case
+  use Bob.DataCase
 
-  alias Bob.Repo
-
-  setup do
-    Bob.FakeHttpClient.reset()
-    :ok
+  test "connects to the database" do
+    assert %Postgrex.Result{rows: [[1]]} = Repo.query!("SELECT 1")
   end
 
-  describe "fetch_built_refs/1" do
-    test "parses lines into a ref_name => ref map" do
-      body = """
-      OTP-26.2 abc123 2026-01-01T00:00:00Z hash1
-      OTP-27.0 def456 2026-02-01T00:00:00Z hash2
-      """
-
-      Bob.FakeHttpClient.stub(
-        :get,
-        "https://s3.amazonaws.com/s3.hex.pm/builds/otp/amd64/ubuntu-24.04/builds.txt",
-        200,
-        body
-      )
-
-      assert Repo.fetch_built_refs("builds/otp/amd64/ubuntu-24.04") == %{
-               "OTP-26.2" => "abc123",
-               "OTP-27.0" => "def456"
-             }
+  describe "init/2" do
+    test "leaves opts unchanged without BOB_DATABASE_URL" do
+      assert Bob.Repo.init(:supervisor, pool_size: 3) == {:ok, [pool_size: 3]}
     end
 
-    test "returns an empty map when builds.txt does not exist yet" do
-      assert Repo.fetch_built_refs("builds/otp/amd64/ubuntu-26.04") == %{}
-    end
+    test "applies url and pool_size from the environment without ssl when no CA cert" do
+      System.put_env("BOB_DATABASE_URL", "postgres://example/bob")
+      System.put_env("BOB_DATABASE_POOL_SIZE", "15")
 
-    test "returns an empty map when builds.txt is empty" do
-      Bob.FakeHttpClient.stub(
-        :get,
-        "https://s3.amazonaws.com/s3.hex.pm/builds/otp/amd64/ubuntu-24.04/builds.txt",
-        200,
-        ""
-      )
+      on_exit(fn ->
+        System.delete_env("BOB_DATABASE_URL")
+        System.delete_env("BOB_DATABASE_POOL_SIZE")
+      end)
 
-      assert Repo.fetch_built_refs("builds/otp/amd64/ubuntu-24.04") == %{}
+      {:ok, opts} = Bob.Repo.init(:supervisor, [])
+
+      assert opts[:url] == "postgres://example/bob"
+      assert opts[:pool_size] == 15
+      refute Keyword.has_key?(opts, :ssl)
     end
   end
 end

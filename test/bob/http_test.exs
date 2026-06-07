@@ -30,4 +30,18 @@ defmodule Bob.HTTPTest do
     fun = counter([{:ok, 404, [], ""}])
     assert HTTP.retry("test", fun) == {:ok, 404, [], ""}
   end
+
+  test "returns a 429 without retrying when retry_rate_limit? is false" do
+    fun = counter([{:ok, 429, [{"x-ratelimit-remaining", "0"}], ""}])
+
+    assert HTTP.retry("test", fun, retry_rate_limit?: false) ==
+             {:ok, 429, [{"x-ratelimit-remaining", "0"}], ""}
+  end
+
+  test "backoff grows exponentially but is capped" do
+    assert HTTP.backoff(100, 0) == 100
+    assert HTTP.backoff(100, 3) == 2_700
+    assert HTTP.backoff(100, 20) == 30_000
+    assert HTTP.backoff(10_000, 20) == 30_000
+  end
 end

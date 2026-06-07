@@ -1,34 +1,53 @@
 defmodule Bob.Repo do
-  @bucket "s3.hex.pm"
+  use Ecto.Repo,
+    otp_app: :bob,
+    adapter: Ecto.Adapters.Postgres
 
-  # TODO: Use S3 object metadata
-  def fetch_built_refs(build_path) do
-    path = Path.join(build_path, "builds.txt")
+  def init(_context, opts) do
+    if url = System.get_env("BOB_DATABASE_URL") do
+      pool_size_env = System.get_env("BOB_DATABASE_POOL_SIZE")
+      pool_size = if pool_size_env, do: String.to_integer(pool_size_env), else: opts[:pool_size]
+      ca_cert = System.get_env("BOB_DATABASE_CA_CERT")
+      client_key = System.get_env("BOB_DATABASE_CLIENT_KEY")
+      client_cert = System.get_env("BOB_DATABASE_CLIENT_CERT")
 
-    case ExAws.S3.get_object(@bucket, path, []) |> ExAws.request() do
-      {:ok, %{body: body}} ->
-        body
-        |> String.split("\n", trim: true)
-        |> Map.new(&line_to_ref/1)
+      ssl_opts =
+        if ca_cert do
+          [
+            verify: :verify_peer,
+            cacerts: [decode_cert(ca_cert)],
+            key: decode_key(client_key),
+            cert: decode_cert(client_cert),
+            # Cloud SQL's internal-CA server cert has a CN but no SAN; patched OTP
+            # rejects no-SAN certs during hostname verification
+            # (missing_subject_altnames). Disabling SNI gives verify-CA: the chain
+            # and mTLS are still verified, only hostname matching is dropped.
+            # customize_hostname_check does not clear this error.
+            server_name_indication: :disable
+          ]
+        end
 
-      {:error, {:http_error, 404, _}} ->
-        %{}
+      opts =
+        opts
+        |> Keyword.put(:url, url)
+        |> Keyword.put(:pool_size, pool_size)
+        |> then(fn opts ->
+          if ssl_opts, do: Keyword.put(opts, :ssl, ssl_opts), else: opts
+        end)
+
+      {:ok, opts}
+    else
+      {:ok, opts}
     end
   end
 
-  def fetch_file(path) do
-    %{body: body} = ExAws.S3.get_object(@bucket, path, []) |> ExAws.request!()
-    body
+  defp decode_cert(cert) do
+    [{:Certificate, der, _}] = :public_key.pem_decode(cert)
+    der
   end
 
-  def list_files(prefix) do
-    ExAws.S3.list_objects(@bucket, prefix: prefix)
-    |> ExAws.stream!()
-    |> Stream.map(&Map.get(&1, :key))
-  end
-
-  defp line_to_ref(line) do
-    destructure [ref_name, ref], String.split(line, " ", trim: true)
-    {ref_name, ref}
+  defp decode_key(key) do
+    [{:RSAPrivateKey, der, :not_encrypted}] = :public_key.pem_decode(key)
+    {:RSAPrivateKey, der}
   end
 end

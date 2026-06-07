@@ -10,3 +10,11 @@ config :ex_aws,
   http_client: Bob.FakeHttpClient
 
 config :logger, level: :warning
+
+config :bob, Bob.Repo,
+  username: "postgres",
+  password: "postgres",
+  hostname: "localhost",
+  database: "bob_test",
+  pool: Ecto.Adapters.SQL.Sandbox,
+  pool_size: 10

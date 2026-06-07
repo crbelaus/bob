@@ -9,6 +9,7 @@ defmodule Bob.Mixfile do
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       releases: releases(),
+      aliases: aliases(),
       deps: deps()
     ]
   end
@@ -25,14 +26,23 @@ defmodule Bob.Mixfile do
 
   defp deps() do
     [
+      {:ecto_sql, "~> 3.12"},
       {:ex_aws_s3, "~> 2.0"},
       {:hackney, "~> 1.11"},
       {:plug_cowboy, "~> 2.0"},
       {:porcelain, "~> 2.0"},
+      {:postgrex, "~> 0.19"},
       {:sentry, "~> 10.2"},
       {:sweet_xml, "~> 0.5"},
       {:logster, "~> 1.0"},
       {:observer_cli, "~> 1.7"}
+    ]
+  end
+
+  defp aliases() do
+    [
+      "ecto.setup": ["ecto.create", "ecto.migrate"],
+      "ecto.reset": ["ecto.drop", "ecto.setup"]
     ]
   end
 
