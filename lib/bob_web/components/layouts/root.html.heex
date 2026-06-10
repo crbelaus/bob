@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content={get_csrf_token()} />
+    <title>Bob</title>
+    <link rel="icon" href={~p"/favicon.ico"} sizes="any" />
+    <link rel="icon" type="image/png" href={~p"/images/favicon-64.png"} sizes="64x64" />
+    <link rel="apple-touch-icon" href={~p"/images/favicon-160.png"} sizes="160x160" />
+    <link phx-track-static rel="stylesheet" href={~p"/assets/app.css"} />
+    <script defer phx-track-static type="text/javascript" src={~p"/assets/app.js"}>
+    </script>
+  </head>
+  <body>
+    <div class="bob">
+      <header class="bob-nav">
+        <div class="bob-nav__inner">
+          <.link href={~p"/"} class="bob-brand">
+            <img src={~p"/favicon.ico"} width="28" height="28" alt="" />
+            <span class="bob-brand__name">Bob</span>
+            <span class="bob-brand__tag">Hex build server</span>
+          </.link>
+
+          <nav class="bob-nav__tabs" aria-label="Primary">
+            <.link href={~p"/"} class={nav_class(@conn.request_path, "/")}>
+              <.icon name="queue" /> Jobs
+            </.link>
+            <.link href={~p"/artifacts"} class={nav_class(@conn.request_path, "/artifacts")}>
+              <.icon name="box" /> Artifacts
+            </.link>
+            <.link href={~p"/docker"} class={nav_class(@conn.request_path, "/docker")}>
+              <.icon name="docker" /> Docker Tags
+            </.link>
+          </nav>
+
+          <div class="bob-nav__right">
+            <a
+              class="nav-ext"
+              href="https://github.com/hexpm/bob"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <.icon name="external" /> hexpm/bob
+            </a>
+          </div>
+
+          <details class="bob-menu">
+            <summary class="bob-menu__button" aria-label="Open navigation menu">
+              <.icon name="menu" />
+              <span>Menu</span>
+            </summary>
+            <nav class="bob-menu__panel" aria-label="Mobile primary">
+              <.link href={~p"/"} class={menu_class(@conn.request_path, "/")}>
+                <.icon name="queue" /> Jobs
+              </.link>
+              <.link href={~p"/artifacts"} class={menu_class(@conn.request_path, "/artifacts")}>
+                <.icon name="box" /> Artifacts
+              </.link>
+              <.link href={~p"/docker"} class={menu_class(@conn.request_path, "/docker")}>
+                <.icon name="docker" /> Docker Tags
+              </.link>
+              <a
+                class="bob-menu__item bob-menu__item--external"
+                href="https://github.com/hexpm/bob"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <.icon name="external" /> hexpm/bob
+              </a>
+            </nav>
+          </details>
+        </div>
+      </header>
+
+      <main class="bob-main">
+        <div class="bob-wrap">
+          <%= @inner_content %>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

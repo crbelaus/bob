@@ -204,4 +204,89 @@ defmodule Bob.QueueTest do
 
     assert Queue.queued() == [{TestJob, [:a]}, {{TestJob, :variant}, [:b, :c]}]
   end
+
+  describe "pubsub broadcasts" do
+    setup do
+      Phoenix.PubSub.subscribe(Bob.PubSub, "jobs")
+      :ok
+    end
+
+    test "add broadcasts :jobs_changed" do
+      Bob.Queue.add(Bob.Job.OTPChecker, [:a])
+      assert_receive :jobs_changed
+    end
+
+    test "start broadcasts :jobs_changed" do
+      Bob.Queue.add(Bob.Job.OTPChecker, [:a])
+      assert_receive :jobs_changed
+      {:ok, _} = Bob.Queue.start(Bob.Job.OTPChecker)
+      assert_receive :jobs_changed
+    end
+
+    test "success and failure broadcast :jobs_changed" do
+      Bob.Queue.add(Bob.Job.OTPChecker, [:a])
+      assert_receive :jobs_changed
+      {:ok, {id, _}} = Bob.Queue.start(Bob.Job.OTPChecker)
+      assert_receive :jobs_changed
+      Bob.Queue.success(id)
+      assert_receive :jobs_changed
+
+      Bob.Queue.add(Bob.Job.OTPChecker, [:b])
+      assert_receive :jobs_changed
+      {:ok, {id2, _}} = Bob.Queue.start(Bob.Job.OTPChecker)
+      assert_receive :jobs_changed
+      Bob.Queue.failure(id2)
+      assert_receive :jobs_changed
+    end
+  end
+
+  describe "read functions" do
+    test "running/0 returns running jobs newest-started first" do
+      Bob.Queue.add(Bob.Job.OTPChecker, [:a])
+      Bob.Queue.add(Bob.Job.OTPChecker, [:b])
+      {:ok, _} = Bob.Queue.start(Bob.Job.OTPChecker)
+      {:ok, _} = Bob.Queue.start(Bob.Job.OTPChecker)
+
+      running = Bob.Queue.running()
+      assert length(running) == 2
+      assert Enum.all?(running, &(&1.state == "running"))
+      assert hd(running).started_at >= List.last(running).started_at
+    end
+
+    test "queued_listing/2 returns queued jobs oldest-first with limit/offset" do
+      for n <- 1..3, do: Bob.Queue.add(Bob.Job.OTPChecker, [n])
+
+      assert [a, b] = Bob.Queue.queued_listing(2, 0)
+      assert a.inserted_at <= b.inserted_at
+      assert [_c] = Bob.Queue.queued_listing(2, 2)
+    end
+
+    test "recent/2 returns done and failed jobs newest-finished first" do
+      Bob.Queue.add(Bob.Job.OTPChecker, [:done])
+      {:ok, {id1, _}} = Bob.Queue.start(Bob.Job.OTPChecker)
+      Bob.Queue.success(id1)
+
+      Bob.Queue.add(Bob.Job.OTPChecker, [:fail])
+      {:ok, {id2, _}} = Bob.Queue.start(Bob.Job.OTPChecker)
+      Bob.Queue.failure(id2)
+
+      recent = Bob.Queue.recent(50, 0)
+      assert Enum.map(recent, & &1.state) |> Enum.sort() == ["done", "failed"]
+      assert hd(recent).finished_at >= List.last(recent).finished_at
+    end
+
+    test "finished_count/0 counts done and failed jobs" do
+      Bob.Queue.add(Bob.Job.OTPChecker, [:done])
+      {:ok, {done_id, _}} = Bob.Queue.start(Bob.Job.OTPChecker)
+      Bob.Queue.success(done_id)
+
+      Bob.Queue.add(Bob.Job.OTPChecker, [:failed])
+      {:ok, {failed_id, _}} = Bob.Queue.start(Bob.Job.OTPChecker)
+      Bob.Queue.failure(failed_id)
+
+      Bob.Queue.add(Bob.Job.OTPChecker, [:queued])
+
+      assert Bob.Queue.finished_count() == 2
+    end
+  end
 end

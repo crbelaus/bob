@@ -18,8 +18,8 @@ defmodule Bob.DockerHub do
 
   @doc """
   Pages every tag of `repo` from Docker Hub, invoking `on_page` with each page's
-  `{tag, archs, built_at}` list as it arrives. Returns `:ok` once the full set is
-  fetched or `:error` if any page failed, so the caller can avoid applying a
+  `{tag, archs, built_at}` list as it arrives. Returns `:ok` once the full set
+  is fetched or `:error` if any page failed, so the caller can avoid applying a
   partial set. Pages stream through `on_page` rather than accumulating, so the
   response set is never held in memory in full.
   """
@@ -102,24 +102,27 @@ defmodule Bob.DockerHub do
       |> Enum.max_by(&DateTime.to_unix(&1, :microsecond), fn -> nil end)
   end
 
-  defp parse_timestamp(value) when value in [nil, ""], do: nil
-
   defp parse_timestamp(value) when is_binary(value) do
-    with {:error, _reason} <- DateTime.from_iso8601(value) do
-      parse_naive_timestamp(value)
-    else
-      {:ok, datetime, _offset} -> force_microsecond_precision(datetime)
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} ->
+        force_microsecond_precision(datetime)
+
+      {:error, _reason} ->
+        parse_naive_timestamp(value)
     end
   end
 
+  defp parse_timestamp(_value), do: nil
+
   defp parse_naive_timestamp(value) do
-    with {:ok, datetime} <- NaiveDateTime.from_iso8601(value) do
-      datetime
-      |> NaiveDateTime.truncate(:microsecond)
-      |> DateTime.from_naive!("Etc/UTC")
-      |> force_microsecond_precision()
-    else
-      {:error, _reason} -> nil
+    case NaiveDateTime.from_iso8601(value) do
+      {:ok, datetime} ->
+        datetime
+        |> DateTime.from_naive!("Etc/UTC")
+        |> force_microsecond_precision()
+
+      {:error, _reason} ->
+        nil
     end
   end
 

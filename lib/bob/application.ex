@@ -16,11 +16,12 @@ defmodule Bob.Application do
         [
           {Finch, name: Bob.Finch},
           {Task.Supervisor, [name: Bob.Tasks]},
+          {Phoenix.PubSub, name: Bob.PubSub},
           Bob.DockerHub.RateLimiter,
           Bob.DockerHub.Auth,
           runner_spec(),
           {Bob.Schedule, [schedule()]},
-          {Plug.Cowboy, scheme: :http, plug: Bob.Router, options: [port: port(), compress: true]}
+          BobWeb.Endpoint
         ]
 
     opts = [strategy: :one_for_one, name: Bob.Supervisor]
@@ -39,14 +40,6 @@ defmodule Bob.Application do
     defp maintenance_children(), do: []
   else
     defp maintenance_children(), do: [Bob.Queue.Maintenance]
-  end
-
-  defp port() do
-    if port = System.get_env("BOB_PORT") do
-      String.to_integer(port)
-    else
-      4003
-    end
   end
 
   defp setup_docker() do

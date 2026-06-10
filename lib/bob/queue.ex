@@ -59,6 +59,7 @@ defmodule Bob.Queue do
       )
     end)
 
+    broadcast()
     :ok
   end
 
@@ -87,6 +88,7 @@ defmodule Bob.Queue do
       [[id, args_binary]] ->
         args = Term.decode(args_binary)
         Logger.info("STARTING #{inspect(key)} #{inspect(args)}")
+        broadcast()
         {:ok, {id, args}}
 
       [] ->
@@ -111,6 +113,7 @@ defmodule Bob.Queue do
       end
     end)
 
+    broadcast()
     :ok
   end
 
@@ -126,6 +129,7 @@ defmodule Bob.Queue do
       end
     end)
 
+    broadcast()
     :ok
   end
 
@@ -146,6 +150,41 @@ defmodule Bob.Queue do
         where: j.state == "queued",
         order_by: [j.inserted_at, j.id],
         select: {j.module_key, j.args}
+      )
+    )
+  end
+
+  def running() do
+    Repo.all(
+      from(j in Job,
+        where: j.state == "running",
+        order_by: [desc: j.started_at, desc: j.id]
+      )
+    )
+  end
+
+  def queued_listing(limit \\ 100, offset \\ 0) do
+    Repo.all(
+      from(j in Job,
+        where: j.state == "queued",
+        order_by: [j.inserted_at, j.id],
+        limit: ^limit,
+        offset: ^offset
+      )
+    )
+  end
+
+  def finished_count() do
+    Repo.aggregate(from(j in Job, where: j.state in ["done", "failed"]), :count, :id)
+  end
+
+  def recent(limit \\ 50, offset \\ 0) do
+    Repo.all(
+      from(j in Job,
+        where: j.state in ["done", "failed"],
+        order_by: [desc: j.finished_at, desc: j.id],
+        limit: ^limit,
+        offset: ^offset
       )
     )
   end
@@ -223,5 +262,9 @@ defmodule Bob.Queue do
 
   defp backoff_seconds(count) do
     min(@backoff_base * Integer.pow(2, min(count - 1, 12)), @backoff_max)
+  end
+
+  defp broadcast() do
+    Phoenix.PubSub.broadcast(Bob.PubSub, "jobs", :jobs_changed)
   end
 end
