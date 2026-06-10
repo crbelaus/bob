@@ -27,6 +27,66 @@ defmodule BobWeb.JobsLiveTest do
     assert html =~ ~r/Showing\s*<b>1<\/b>\s*-\s*<b>1<\/b>\s*job\s*of\s*1 job/
   end
 
+  test "filters jobs by toggling module chips", %{conn: conn} do
+    Bob.Queue.add(Bob.Job.DockerChecker, [:docker_done])
+    {:ok, {id, [:docker_done]}} = Bob.Queue.start(Bob.Job.DockerChecker)
+    Bob.Queue.success(id)
+
+    Bob.Queue.add(Bob.Job.OTPChecker, [:otp_queued])
+    Bob.Queue.add(Bob.Job.DockerChecker, [:docker_queued])
+
+    {:ok, view, html} = live(conn, ~p"/")
+    assert html =~ ":otp_queued"
+    assert html =~ ":docker_queued"
+    assert html =~ ":docker_done"
+
+    html =
+      view
+      |> element("button[phx-value-module='Bob.Job.OTPChecker']")
+      |> render_click()
+
+    assert html =~ ":otp_queued"
+    refute html =~ ":docker_queued"
+    refute html =~ ":docker_done"
+
+    html =
+      view
+      |> element("button[phx-value-module='Bob.Job.DockerChecker']")
+      |> render_click()
+
+    assert html =~ ":otp_queued"
+    assert html =~ ":docker_queued"
+    assert html =~ ":docker_done"
+
+    html =
+      view
+      |> element("button[phx-value-module='Bob.Job.OTPChecker']")
+      |> render_click()
+
+    refute html =~ ":otp_queued"
+    assert html =~ ":docker_queued"
+    assert html =~ ":docker_done"
+  end
+
+  test "orders work chips before checker and maintenance chips", %{conn: conn} do
+    Bob.Queue.add(Bob.Job.DockerChecker, [:a])
+    Bob.Queue.add(Bob.Job.OTPChecker, [:b])
+    Bob.Queue.add({Bob.Job.BuildOTP, "amd64"}, [:c])
+    Bob.Queue.add(Bob.Job.DockerManifest, [:d])
+
+    {:ok, _view, html} = live(conn, ~p"/")
+
+    {build_pos, _} = :binary.match(html, "Bob.Job.BuildOTP")
+    {manifest_pos, _} = :binary.match(html, "Bob.Job.DockerManifest")
+    {docker_checker_pos, _} = :binary.match(html, "Bob.Job.DockerChecker")
+    {otp_checker_pos, _} = :binary.match(html, "Bob.Job.OTPChecker")
+
+    assert build_pos < docker_checker_pos
+    assert build_pos < otp_checker_pos
+    assert manifest_pos < docker_checker_pos
+    assert manifest_pos < otp_checker_pos
+  end
+
   test "root layout links favicon assets", %{conn: conn} do
     {:ok, _view, html} = live(conn, ~p"/")
 

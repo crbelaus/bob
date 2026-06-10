@@ -22,7 +22,9 @@ defmodule BobWeb.JobsLive do
         now: DateTime.utc_now(),
         tick_scheduled: false,
         running: [],
-        queue_sizes: [],
+        modules: [],
+        selected: MapSet.new(),
+        queued_counts: %{},
         queue_total: 0,
         queued: [],
         past: [],
@@ -69,22 +71,49 @@ defmodule BobWeb.JobsLive do
     {:noreply, socket |> assign(past_offset: offset) |> load()}
   end
 
+  def handle_event("toggle_module", %{"module" => name}, socket) do
+    selected = socket.assigns.selected
+
+    selected =
+      if MapSet.member?(selected, name) do
+        MapSet.delete(selected, name)
+      else
+        MapSet.put(selected, name)
+      end
+
+    {:noreply,
+     socket
+     |> assign(selected: selected, queued_offset: 0, past_offset: 0)
+     |> load()}
+  end
+
   defp step("next", page), do: page
   defp step("prev", page), do: -page
 
   defp load(socket) do
-    queue_sizes =
-      Bob.Queue.queue_sizes()
-      |> Enum.sort_by(fn {_mod, count} -> count end, :desc)
+    modules =
+      Bob.Queue.job_modules()
+      |> Enum.sort_by(&{housekeeping?(&1), module_name(&1)})
+
+    selected = socket.assigns.selected
+    filter = Enum.filter(modules, &MapSet.member?(selected, module_name(&1)))
+    queued_counts = Map.new(Bob.Queue.queue_sizes())
+
+    queue_total =
+      queued_counts
+      |> Enum.filter(fn {mod, _count} -> filter == [] or mod in filter end)
+      |> Enum.map(fn {_mod, count} -> count end)
+      |> Enum.sum()
 
     assign(socket,
-      running: Bob.Queue.running(),
+      running: Bob.Queue.running(filter),
       now: DateTime.utc_now(),
-      queue_sizes: queue_sizes,
-      queue_total: Enum.sum(Enum.map(queue_sizes, fn {_mod, count} -> count end)),
-      queued: Bob.Queue.queued_listing(@queued_page, socket.assigns.queued_offset),
-      past: Bob.Queue.recent(@past_page, socket.assigns.past_offset),
-      past_total: Bob.Queue.finished_count(),
+      modules: modules,
+      queued_counts: queued_counts,
+      queue_total: queue_total,
+      queued: Bob.Queue.queued_listing(@queued_page, socket.assigns.queued_offset, filter),
+      past: Bob.Queue.recent(@past_page, socket.assigns.past_offset, filter),
+      past_total: Bob.Queue.finished_count(filter),
       loading: false
     )
   end
@@ -135,6 +164,13 @@ defmodule BobWeb.JobsLive do
   defp module_name(module_key), do: inspect(module_key)
   defp args_text(args), do: inspect(args)
 
+  defp housekeeping?(module_key) do
+    name = module_name(module_key)
+
+    String.contains?(name, "Checker") or String.contains?(name, "Reconcile") or
+      String.contains?(name, "Clean")
+  end
+
   defp job_cat(module_key) do
     module = inspect(module_key)
 
@@ -157,6 +193,20 @@ defmodule BobWeb.JobsLive do
           <span class="live-dot"></span>
           Live - updates automatically
         </div>
+      </div>
+
+      <div :if={@modules != []} class="chip-row chip-row--filter">
+        <button
+          :for={mod <- @modules}
+          type="button"
+          class={["chip", MapSet.member?(@selected, module_name(mod)) && "chip--active"]}
+          phx-click="toggle_module"
+          phx-value-module={module_name(mod)}
+        >
+          <.cat_glyph cat={job_cat(mod)} size={13} />
+          <%= module_name(mod) %>
+          <span :if={@queued_counts[mod]} class="chip__n"><%= @queued_counts[mod] %></span>
+        </button>
       </div>
 
       <.section
@@ -194,18 +244,6 @@ defmodule BobWeb.JobsLive do
       <.section title="Queue" count={@queue_total} icon="queue">
         <div :if={@loading} class="empty-mini">Loading queue...</div>
 
-        <div :if={!@loading and @queue_sizes != []} class="qsizes">
-          <div class="qsizes__label">Queued by job type</div>
-          <div class="qsizes__grid">
-            <div :for={{mod, count} <- @queue_sizes} class="qsize">
-              <span class="qsize__l">
-                <.cat_glyph cat={job_cat(mod)} size={14} />
-                <code class="qsize__mod"><%= module_name(mod) %></code>
-              </span>
-              <span class="qsize__count"><%= count %></span>
-            </div>
-          </div>
-        </div>
         <.table :if={!@loading and @queued != []} rows={@queued}>
           <:col :let={j} label="Module">
             <.module_cell cat={job_cat(j.module_key)} module={module_name(j.module_key)} />
